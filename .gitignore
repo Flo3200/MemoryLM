@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Data, checkpoints and run outputs never go into git (too large; live on Drive/HF)
+runs/
+data/
+*.bin
+*.pt
+*.safetensors
+wandb/
+
+# Secrets: never commit these
+.env
+*.token
+secrets*
+hf_token*
+
+# OS
+.DS_Store

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Runs before every commit. Activated once with:  git config core.hooksPath .githooks
+# (scripts/setup_dev.sh does this automatically).
+exec python3 "$(git rev-parse --show-toplevel)/scripts/check_secrets.py" --staged

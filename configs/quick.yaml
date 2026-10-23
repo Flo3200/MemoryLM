@@ -1,0 +1,81 @@
+# MemoryLM preset "quick": the configuration for the first ~4 GPU-hour run.
+# Every value is explained in plain language. "full.yaml" only overrides
+# the values that change; everything else is inherited from this file.
+
+preset: quick
+seed: 1234                    # one seed for everything (data order, init, sampling)
+
+tokenizer:
+  vocab_size: 4096            # number of BPE word pieces the models know
+  # Special tokens are reserved ids. <recite> starts a recitation episode,
+  # <eos> separates stories, <pad> fills unused positions.
+  special_tokens: ["<eos>", "<recite>", "<pad>"]
+
+model:
+  d_model: 256                # width of every token vector
+  n_layers: 4
+  n_heads: 4                  # 4 heads x 64 dims = 256
+  context: 128                # tokens the attention can see at once
+  ffn_hidden_memorylm: 704    # SwiGLU inner width of MemoryLM
+  ffn_hidden_baseline: auto   # "auto": widest value that keeps the baseline within 2 % of MemoryLM's parameters
+  rope_base: 10000.0          # RoPE frequency base (standard value)
+  norm_eps: 1.0e-5
+  tie_weights: true           # input embedding and output matrix share weights
+  dropout: 0.0                # no dropout: the data set is large, the run is short
+
+memory:
+  enabled: true
+  chunk_size: 32              # text is processed in chunks; writes become readable one chunk later
+  capacity: 512               # entries per store (knowledge and rule)
+  top_k: 8                    # entries read per query
+  key_dim: 64                 # size of memory keys
+  write_layer: 2              # stored vectors are computed from the output of this layer (1-based)
+  gate_mode: hard_ste         # "hard_ste" (hard decision, sigmoid gradient) or "soft"
+  gate_bias_init: 0.5         # slightly positive: the model starts by writing, then learns to be selective
+  rule_score_scale: 0.125     # g_i = tanh(scale * k_i . q); keeps rule scores bounded
+  write_penalty_lambda: 0.01  # cost per expected write, added to the loss
+  write_penalty_ramp_steps: 2000  # lambda grows linearly from 0 over this many steps
+  sparse_values: false        # off in the quick run (code path kept switchable)
+  product_keys: false         # off in the quick run (code path kept switchable)
+
+data:
+  hf_repo: roneneldan/TinyStories
+  train_file: TinyStoriesV2-GPT4-train.txt
+  valid_file: TinyStoriesV2-GPT4-valid.txt
+  # Held-out stories for recitation/evaluation are cut from the VALID file,
+  # so they never appear in training text.
+  recite_eval_stories: 2000
+  tokenizer_train_mb: 200     # MB of training text used to learn the BPE merges
+
+train:
+  batch_size: auto            # largest power of two that fits in GPU memory
+  max_batch_size: 256
+  grad_clip: 1.0
+  weight_decay: 0.1
+  betas: [0.9, 0.95]
+  mixed_precision: fp16       # fp16 + loss scaling on a T4; "bf16" on newer GPUs; "none" on CPU
+  phase1:
+    lr: 1.0e-3
+    warmup_steps: 300
+    min_lr_ratio: 0.1         # cosine decay down to 10 % of lr
+    tokens: auto              # set by the phase-0 speed test so MemoryLM needs ~60 min
+    target_minutes_memorylm: 60
+  phase2:
+    lr: 3.0e-4
+    minutes: 60
+    n_start: 16               # recitation length at step 0
+    n_growth: 1.001           # multiplied per step, rounded up
+    n_max: 128
+    text_fraction: 0.5        # half of each batch is normal next-token text
+  eval_interval_minutes: 5
+  speed_test_minutes: 3
+  total_gpu_hours: 4.0
+
+checkpoint:
+  every_minutes: 15
+  keep_last: 2                # plus the best one
+
+paths:
+  # On Colab this is the mounted Drive; locally it is a folder in the repo.
+  drive_root: /content/drive/MyDrive/MemoryLM
+  local_root: runs

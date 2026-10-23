@@ -1,0 +1,9 @@
+# torch is installed separately (Colab/Kaggle ship it; on an Intel Mac the
+# last available version is 2.2.2, which needs numpy<2). The code avoids
+# features newer than torch 2.2 so it runs everywhere.
+numpy
+tokenizers>=0.15
+pyyaml
+huggingface_hub
+pytest
+matplotlib

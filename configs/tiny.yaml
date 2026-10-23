@@ -1,0 +1,39 @@
+# Preset "tiny": a toy-sized model for CPU tests and bug hunting.
+# GPU time is scarce, so every bug should be found here first.
+inherit: quick.yaml
+
+preset: tiny
+
+tokenizer:
+  vocab_size: 512
+
+model:
+  d_model: 64
+  n_layers: 4
+  n_heads: 2
+  context: 64
+  ffn_hidden_memorylm: 176
+
+memory:
+  chunk_size: 16
+  capacity: 64
+  key_dim: 16
+  write_penalty_ramp_steps: 20
+
+data:
+  recite_eval_stories: 50
+  tokenizer_train_mb: 2
+
+train:
+  batch_size: 8
+  mixed_precision: none
+  phase1:
+    warmup_steps: 5
+    tokens: 20000
+  phase2:
+    minutes: 1
+  eval_interval_minutes: 1
+  speed_test_minutes: 0.1
+
+paths:
+  local_root: runs/tiny

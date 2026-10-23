@@ -1,0 +1,18 @@
+# MemoryLM preset "full": a later, larger run. Only the differences to
+# quick.yaml are listed; everything else is inherited.
+inherit: quick.yaml
+
+preset: full
+
+tokenizer:
+  vocab_size: 8192
+
+model:
+  d_model: 384
+  n_layers: 6
+  n_heads: 6                  # 6 heads x 64 dims = 384
+  context: 256
+  ffn_hidden_memorylm: 1024   # roughly 8/3 x d_model, like the quick preset
+
+memory:
+  write_layer: 3              # middle of 6 layers, as layer 2 is the middle of 4
