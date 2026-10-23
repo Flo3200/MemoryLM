@@ -75,10 +75,20 @@ def make_optimizer(model, cfg) -> torch.optim.Optimizer:
     """AdamW. Weight decay (pulling weights slowly towards 0) only on
     matrices; not on norm gains, biases or the memory scalars, where pulling
     towards 0 would just fight their purpose."""
+    scalars = [p for n, p in model.named_parameters() if n in ("memory.beta", "memory.alpha")]
+    ids = {id(p) for p in scalars}
     decay = [p for p in model.parameters() if p.dim() >= 2]
-    no_decay = [p for p in model.parameters() if p.dim() < 2]
-    groups = [{"params": decay, "weight_decay": cfg.train.weight_decay},
-              {"params": no_decay, "weight_decay": 0.0}]
+    no_decay = [p for p in model.parameters() if p.dim() < 2 and id(p) not in ids]
+    groups = [{"params": decay, "weight_decay": cfg.train.weight_decay, "lr_mult": 1.0},
+              {"params": no_decay, "weight_decay": 0.0, "lr_mult": 1.0}]
+    if scalars:
+        # The memory scalars start at exactly 0. With a normal learning rate
+        # they stay near 0 for a long time: while they are ~0 the memory's
+        # projections get almost no gradient, and while the projections are
+        # untrained the scalars only get noise (chicken and egg). A larger
+        # step size for these 8 numbers breaks the deadlock without giving up
+        # the exact zero start.
+        groups.append({"params": scalars, "weight_decay": 0.0, "lr_mult": float(cfg.memory.scalar_lr_mult)})
     kw = {"fused": True} if torch.cuda.is_available() else {}
     return torch.optim.AdamW(groups, lr=cfg.train.phase1.lr, betas=tuple(cfg.train.betas), **kw)
 
@@ -264,7 +274,7 @@ class Trainer:
         self.model.train()
         lr = self._lr()
         for g in self.opt.param_groups:
-            g["lr"] = lr
+            g["lr"] = lr * g.get("lr_mult", 1.0)
         with self._autocast():
             loss, info = self.compute_loss()
         self.opt.zero_grad(set_to_none=True)
@@ -310,6 +320,10 @@ class Trainer:
         if "write_rate" in info:
             row["write_rate"] = info["write_rate"]
             row["mem_kb"] = info["state"].size_kb()
+            # The memory scalars start at 0; their size shows how much the model
+            # has started to rely on its memory (knowledge read beta, rule alpha).
+            row["mem_beta"] = self.model.memory.beta.detach().cpu().tolist()
+            row["mem_alpha"] = self.model.memory.alpha.detach().cpu().tolist()
         if "ce_recite" in info:
             row.update(recite_loss=info["ce_recite"].item(), recite_n=info["recite_n"],
                        recite_acc=info["recite_acc"].item())

@@ -171,3 +171,45 @@ def test_speed_test_and_plan_shrinking(tiny_cfg):
                       torch.device("cpu"))
     assert tight["shrunk"] and tight["phase1_tokens"] < plan["phase1_tokens"]
     assert tight["estimate_minutes"]["total"] <= 0.05 * 60 + 0.01
+
+
+def test_scalar_learning_rate_multiplier(tiny_cfg):
+    cfg = tiny_cfg("memory.scalar_lr_mult=10")
+    t = trainer(cfg, "memorylm")
+    t.train_step()
+    mults = sorted(g["lr_mult"] for g in t.opt.param_groups)
+    assert mults == [1.0, 1.0, 10.0]
+    scal = [g for g in t.opt.param_groups if g["lr_mult"] == 10.0][0]
+    assert {id(p) for p in scal["params"]} == {id(t.model.memory.beta), id(t.model.memory.alpha)}
+    assert scal["weight_decay"] == 0.0
+
+
+def test_evaluation_end_to_end(tiny_cfg):
+    """Phase 3 on a tiny finished run: results, plots and report exist, and
+    'memory off' equals the lower bound's structure (no leak)."""
+    import json
+    from memorylm.evaluate import run_evaluation
+    cfg = tiny_cfg("train.phase1.tokens=2048", "train.phase2.steps=4", "eval.passages_per_length=8",
+                   "eval.lengths=[8,16]", "eval.val_windows=16")
+    plan = make_plan(cfg, torch.device("cpu"))
+    from memorylm.checkpoint import atomic_write_json
+    atomic_write_json(run_dir(cfg) / "plan.json", plan)
+    for kind in ("baseline", "memorylm"):
+        trainer(cfg, kind, plan).train()
+    res = run_evaluation(cfg, torch.device("cpu"))
+    out = run_dir(cfg) / "eval"
+    assert set(res["recall"]) == {"8", "16"}
+    for f in ("results.json", "REPORT.md", "recall_by_length.png", "loss_curves.png"):
+        assert (out / f).exists(), f
+    r = json.loads((out / "results.json").read_text())["recall"]["8"]
+    assert 0 <= r["memorylm_cleared_acc"] <= 1 and r["memory_kb"] > 0
+
+
+def test_notebook_cells_compile():
+    import json
+    from pathlib import Path
+    nb = json.loads((Path(__file__).resolve().parent.parent / "notebooks" / "train_colab.ipynb").read_text())
+    code = [c for c in nb["cells"] if c["cell_type"] == "code"]
+    assert len(code) == 4
+    for c in code:
+        compile("".join(c["source"]), "cell", "exec")

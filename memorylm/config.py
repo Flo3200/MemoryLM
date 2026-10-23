@@ -58,7 +58,13 @@ def _load_raw(path: Path) -> dict:
 
 def _parse_value(text: str) -> Any:
     # "--set model.d_model=128" arrives as a string; YAML turns it into 128.
-    return yaml.safe_load(text)
+    value = yaml.safe_load(text)
+    if isinstance(value, str):
+        try:
+            return float(value)       # YAML reads "3e-3" (no decimal point) as text
+        except ValueError:
+            pass
+    return value
 
 
 def run_root(cfg) -> Path:

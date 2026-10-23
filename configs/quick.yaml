@@ -37,6 +37,7 @@ memory:
   write_penalty_lambda: 0.01  # cost per expected write, added to the loss
   write_penalty_ramp_steps: 2000  # lambda grows linearly from 0 over this many steps
   write_penalty_from_phase: 2     # the ramp starts with phase 2 (recitation); see LEARNING.md
+  scalar_lr_mult: 10.0        # learning-rate multiplier for the 8 memory scalars (they start at 0); see LEARNING.md
   sparse_values: false        # off in the quick run (code path kept switchable)
   sparse_value_k: 32          # if on: keep only the 32 largest numbers of each stored vector
   product_keys: false         # off in the quick run (code path kept switchable)
@@ -84,6 +85,7 @@ train:
 eval:
   passages_per_length: 256    # recitation passages per length (16, 32, 64, 128)
   lengths: [16, 32, 64, 128]
+  val_windows: 2048           # validation windows for the final loss comparison (~260 k tokens)
 
 checkpoint:
   every_minutes: 15

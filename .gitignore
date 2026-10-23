@@ -20,3 +20,8 @@ hf_token*
 
 # OS
 .DS_Store
+
+# Local app state and editor config
+app/models/
+app/settings.json
+.claude/

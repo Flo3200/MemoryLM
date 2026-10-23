@@ -433,3 +433,76 @@ because the memory projections are smaller than originally estimated.
   `logs/metrics_<model>.jsonl` keeps one line per evaluation.
 - **Why:** progress can be checked from anywhere (Drive, the local app)
   without streaming the training log.
+
+### Learning-rate multiplier for the memory scalars (added after a CPU probe)
+- **What:** the 8 memory scalars (β and α per layer) use a 10× larger
+  learning rate than all other weights (`memory.scalar_lr_mult`).
+- **Why:** a CPU experiment showed a chicken-and-egg problem. While β and α
+  are ~0, the memory's projections get almost no gradient; while the
+  projections are untrained, the memory adds only noise, so β and α receive
+  no consistent signal and stay near 0 (they reached ±0.08 after 600 steps).
+  A larger step for just these numbers breaks the deadlock while keeping the
+  exact zero start (MemoryLM still begins as a copy of its core).
+- **Alternatives:** small non-zero initial scalars (gives up the clean start),
+  a separate warm-up phase in which only the memory is trained.
+- **Observed:** on random-word stories the memory barely helps even with all
+  gates forced open, because recalling the next token requires knowing which
+  token came before each stored entry; attention learns such
+  "previous-token" patterns only on real, structured text in phase 1.
+
+---
+
+## 5. Colab notebook and Hugging Face Hub (`notebooks/`, `memorylm/hub.py`)
+- **What:** 4 cells: mount Drive, clone + install, run/resume everything,
+  optional upload. The same notebook runs on Kaggle (no Drive; outputs go to
+  `/kaggle/working`). The Hugging Face token is read only from Colab's or
+  Kaggle's secrets manager, never written into a cell.
+- **Why:** after a disconnect, rerunning cells 1–3 is the entire recovery
+  procedure – everything else is on Drive.
+- **Alternatives:** paid always-on GPUs, local GPU, Weights & Biases for
+  logging (needs an account; here plain JSON files suffice).
+
+## 6. Evaluation (`memorylm/evaluate.py`)
+
+### Four conditions instead of one number
+- **What:** baseline with the passage still in context (upper bound),
+  baseline with cleared context (lower bound), MemoryLM with cleared context
+  and memory on, the same with memory off.
+- **Why:** a raw accuracy is meaningless – a language model guesses many
+  tokens correctly without any memory ("Once upon a" → "time"). The memory's
+  contribution is **memory on − memory off** (same weights, same training).
+  "Memory off" may still beat the baseline's lower bound: MemoryLM was trained
+  on recitation in phase 2 and learned what story beginnings after `<recite>`
+  look like. That is not memory and not a leak (the leak tests prove the
+  passage cannot reach the cleared context any other way).
+
+### Teacher-forced vs. greedy recall
+- **Teacher-forced:** at each position the model sees the true previous
+  tokens and predicts the next one; measures knowledge per position.
+- **Greedy:** the model recites alone, its own mistakes carry forward; the
+  strict, human-like notion of reciting.
+
+### Compression
+- **What:** correctly recalled tokens per KB written; also only the tokens
+  above the lower bound per KB.
+- **Why:** a memory that stores every token verbatim would recall perfectly
+  but cost a lot; the interesting quantity is recall per unit of storage.
+
+### Uncertainty
+- **What:** 95 % intervals over passages (passages are the independent
+  units). One training seed only: differences between models of a few
+  points or a few hundredths of loss may be noise from training randomness,
+  which these intervals do not capture.
+
+### Fair language-modelling comparison
+Validation loss is compared after phase 1, where both models have seen
+exactly the same tokens; MemoryLM's phase-2 value is reported separately.
+
+## 7. Local app (`app/app.py`)
+A Gradio web app on the laptop CPU (the models are small enough):
+chat comparison, memory test (read → clear → recite, with and without
+memory), memory inspector (which tokens each gate writes, learned β and α),
+training dashboard (from Drive or Hugging Face logs), model download.
+Generation inside the app uses temperature and top-k sampling: temperature
+0 always picks the most likely token (repetitive), higher values add
+variety; top-k forbids all but the k most likely tokens (avoids nonsense).

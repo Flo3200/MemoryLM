@@ -17,8 +17,11 @@ Everything runs on free resources: Google Colab (free T4 GPU, Kaggle as a
 fallback), Google Drive, this public GitHub repository and the free
 Hugging Face Hub. The GPU part fits into about 4 hours.
 
-> **Status:** under construction (milestone M0: setup). See
-> [LEARNING.md](LEARNING.md) for why every component is built the way it is.
+> **Status:** code complete and tested on CPU (milestones M0–M7); GPU dry run
+> and the 4-hour training run are next. See [LEARNING.md](LEARNING.md) for why
+> every component is built the way it is.
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Flo3200/MemoryLM/blob/main/notebooks/train_colab.ipynb)
 
 ## Schnellstart (Deutsch)
 
@@ -32,9 +35,19 @@ Hugging Face Hub. The GPU part fits into about 4 hours.
 5. Optional Zelle 4: fertige Modelle zu Hugging Face hochladen
    (Token vorher unter 🔑 *Secrets* als `HF_TOKEN` speichern, nie in den Code).
 
-**Lokale App (Laptop, ohne GPU)** – folgt in Meilenstein M7
-(Doppelklick auf `start_app.command` bzw. `start_app.bat`, dann
-http://localhost:7860 öffnen).
+Fallback **Kaggle**: Notebook unter *File → Import Notebook → GitHub* laden,
+*Settings → Accelerator → GPU T4* wählen, Zellen 2–3 ausführen (Zelle 1 tut dort nichts).
+Fortschritt: `MemoryLM/run_quick/logs/status.json` in Google Drive.
+
+**Lokale App (Laptop, ohne GPU)**
+1. Mac: Doppelklick auf `start_app.command` (beim ersten Mal ggf. Rechtsklick → Öffnen).
+   Windows: Doppelklick auf `start_app.bat`.
+   Der erste Start installiert alles (einige Minuten).
+2. Der Browser öffnet http://localhost:7860.
+3. Tab **5 · Models**: Modelle von Hugging Face laden (`benutzername/memorylm-quick`)
+   oder den synchronisierten Drive-Ordner `…/My Drive/MemoryLM/run_quick` angeben.
+4. Tabs: Chat-Vergleich, Gedächtnistest (lesen → Kontext löschen → rezitieren),
+   Gedächtnis-Inspektor (welche Tokens gespeichert werden), Trainings-Dashboard.
 
 ## Repository layout
 
@@ -46,6 +59,18 @@ http://localhost:7860 öffnen).
 | `app/` | local Gradio app |
 | `tests/` | the test suite that must pass before every training start |
 | `scripts/` | setup and the secret scanner that blocks commits containing tokens |
+| `start_app.command` / `start_app.bat` | double-click start of the local app |
+
+## Commands
+
+```
+python -m memorylm.run_all --preset quick            # everything, resumes after a reset
+python -m memorylm.run_all --preset quick --dry-run  # 10-minute rehearsal
+python -m memorylm.train --preset quick --model memorylm --phase auto
+python -m memorylm.evaluate --preset quick
+python -m memorylm.memory --preset quick             # parameter counts
+python -m pytest -q                                  # the required tests (CPU, ~1 min)
+```
 
 ## Data and licence
 

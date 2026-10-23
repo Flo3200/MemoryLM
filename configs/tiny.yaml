@@ -46,5 +46,10 @@ checkpoint:
   every_minutes: 1000
   every_steps: 5
 
+eval:
+  passages_per_length: 16
+  lengths: [8, 16, 32]
+  val_windows: 64
+
 paths:
   local_root: runs/tiny

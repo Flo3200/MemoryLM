@@ -88,9 +88,10 @@ class Store:
 class MemoryState:
     """The per-episode contents: one knowledge store and one rule store."""
 
-    def __init__(self, capacity: int):
+    def __init__(self, capacity: int, trace: bool = False):
         self.knowledge = Store(capacity)
         self.rule = Store(capacity)
+        self.trace = [] if trace else None     # per-token gate values, for the memory inspector
         self.expected_writes = 0.0      # sum of sigmoid(gate) over all write decisions (for the penalty)
         self.decisions = 0              # number of tokens that had a write decision
         self.hard_writes = torch.zeros(2)
@@ -208,6 +209,8 @@ class MemoryModule(nn.Module):
         x2: hidden after the write layer (B, C, d); gate_logits: (B, C, 2)."""
         g = gate_logits.float()
         sig = torch.sigmoid(g)
+        if state.trace is not None:
+            state.trace.append(g.detach().cpu())
         if self.cfg.gate_mode == "hard_ste":
             # Forward: a hard yes/no. Backward: pretend the gate was the smooth
             # sigmoid (straight-through estimator), so the gate still learns.
@@ -275,9 +278,9 @@ class MemoryLM(nn.Module):
         self.write_layer = cfg.memory.write_layer
         self.memory_enabled = bool(cfg.memory.enabled)
 
-    def new_state(self) -> MemoryState:
+    def new_state(self, trace: bool = False) -> MemoryState:
         # A fresh, EMPTY memory. Called at the start of every episode.
-        return MemoryState(self.cfg.memory.capacity)
+        return MemoryState(self.cfg.memory.capacity, trace)
 
     def process(self, idx: torch.Tensor, state: MemoryState, cache: Optional[KVCache] = None,
                 pos0: int = 0, write: bool = True, use_memory: Optional[bool] = None) -> dict:
