@@ -275,3 +275,77 @@ because the memory projections are smaller than originally estimated.
 - **Product-key search:** split each key in two halves, keep only entries
   that rank well on either half, score those exactly (sub-linear search for
   very large memories, after Lample et al. 2019).
+
+---
+
+## 3. Data and tokenizer (`memorylm/data.py`)
+
+### TinyStories
+- **What:** ~2.7 M short stories (2.2 GB) written by GPT-4 in the vocabulary
+  of a 3–4-year-old child; median 179 tokens per story.
+- **Why:** with a tiny vocabulary and simple grammar, a model of a few
+  million parameters can already produce fluent, coherent text, so effects of
+  the architecture are visible after a few GPU hours.
+- **Alternatives:** Wikipedia/OpenWebText (far harder for small models),
+  synthetic tasks only (clean, but say little about language).
+
+### Byte-level BPE tokenizer with 4096 tokens
+- **What:** starts from the 256 bytes and repeatedly merges the most frequent
+  adjacent pair into a new token until 4096 tokens exist. Trained on 100 MB of
+  training text. ~4 characters per token; frequent words (" little",
+  " named") become one token.
+- **Why:** byte-level means any text can be encoded (no "unknown" token).
+  A small vocabulary suits a small model: the embedding table (vocab × 256)
+  is already a quarter of all parameters; GPT-2's 50 257 tokens would need
+  12.9 M parameters for the embedding alone. Too small a vocabulary
+  (characters) makes sequences long and attention expensive.
+- **Alternatives:** character level, WordPiece (BERT), Unigram/SentencePiece
+  (T5, LLaMA 1), the GPT-2 tokenizer as is (not "from scratch").
+
+### Fast exact encoding
+- **What:** BPE never merges across the "words" found by the byte-level
+  splitting rule, so each distinct word is encoded once and then looked up.
+  Tests require *identical* ids to the reference tokenizer (also on tricky
+  text: double spaces, apostrophes, umlauts, emoji).
+- **Why:** Colab's free tier has 2 CPU cores; the reference library would need
+  ~40 minutes for the 2.2 GB file, the lookup ~10.
+
+### Tokenize once, cache as binary files
+- **What:** token ids as `uint16` (2 bytes per token, ~1.1 GB in total) plus
+  story start offsets, written to Google Drive; progress is saved after each
+  block of 20 000 stories, so an interrupted session continues exactly.
+  On Colab the files are copied to the local disk before training (random
+  reads from Drive are slow).
+- **Why:** tokenization is pure overhead; doing it once, resumably, saves GPU
+  session time.
+- **Alternatives:** tokenizing on the fly (costs CPU every step), the
+  Hugging Face `datasets` library (convenient, heavier dependency).
+
+### Four disjoint pools of stories
+- **What:** `train` (phase 1), `recite_train` (every 50th train story, used
+  only for phase-2 recitation), `recite_eval` (first 2000 validation stories,
+  used only for recall evaluation), `valid` (remaining validation stories,
+  for validation loss). A test decodes every pool and checks that no story
+  appears in two of them.
+- **Why:** if an evaluation passage had been seen in training, the model could
+  "recite" it from its weights instead of its memory – the measurement of
+  memory would be contaminated.
+- **Alternatives:** random splits by hash (also fine), deduplication by n-gram
+  overlap (stricter; TinyStories contains many near-duplicate stories, which
+  is a known limit of this and any split).
+
+### Fixed, resumable data order
+- **What:** the training pool is cut into non-overlapping windows of 129
+  tokens (128 inputs + 128 shifted targets) and visited in one random
+  permutation fixed by the seed. The position in the permutation is one
+  integer stored in every checkpoint.
+- **Why:** both models must see the identical data in the identical order;
+  resuming after a crash must not repeat or skip data.
+- **Alternatives:** sampling random offsets each step (simpler, but windows
+  repeat and resume is not exact), story-aligned packing.
+
+### Recitation passages
+- **What:** the first N tokens of a story with at least N tokens (95 % of
+  stories have ≥ 128). Evaluation uses one fixed set per length.
+- **Why:** a story beginning is a natural, self-contained passage; a fixed
+  evaluation set makes all models and conditions directly comparable.

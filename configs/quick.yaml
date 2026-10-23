@@ -47,7 +47,7 @@ data:
   # Held-out stories for recitation/evaluation are cut from the VALID file,
   # so they never appear in training text.
   recite_eval_stories: 2000
-  tokenizer_train_mb: 200     # MB of training text used to learn the BPE merges
+  tokenizer_train_mb: 100     # MB of training text used to learn the BPE merges (plenty for 4096 tokens)
 
 train:
   batch_size: auto            # largest power of two that fits in GPU memory

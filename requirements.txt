@@ -4,6 +4,7 @@
 numpy
 tokenizers>=0.15
 pyyaml
+regex
 huggingface_hub
 pytest
 matplotlib

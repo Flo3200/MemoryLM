@@ -61,6 +61,22 @@ def _parse_value(text: str) -> Any:
     return yaml.safe_load(text)
 
 
+def run_root(cfg) -> Path:
+    """Where data, checkpoints and logs live.
+    Colab: the mounted Google Drive (survives the end of a session).
+    Kaggle: /kaggle/working (kept as notebook output).
+    Laptop: a local folder. The env variable MEMORYLM_ROOT overrides all."""
+    import os
+    if os.environ.get("MEMORYLM_ROOT"):
+        return Path(os.environ["MEMORYLM_ROOT"])
+    drive = Path(cfg.paths.drive_root)
+    if drive.parent.exists():
+        return drive
+    if Path("/kaggle/working").exists():
+        return Path("/kaggle/working/MemoryLM")
+    return Path(__file__).resolve().parent.parent / cfg.paths.local_root
+
+
 def load_config(preset: str = "quick", overrides: list[str] | None = None) -> Config:
     """Load configs/<preset>.yaml (or a path) and apply "a.b=c" overrides."""
     path = Path(preset)
