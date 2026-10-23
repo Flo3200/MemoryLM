@@ -3,6 +3,7 @@
 # the values that change; everything else is inherited from this file.
 
 preset: quick
+run_name: quick                # folder of this run on Drive (run_quick/)
 seed: 1234                    # one seed for everything (data order, init, sampling)
 
 tokenizer:
@@ -35,6 +36,7 @@ memory:
   rule_score_scale: 0.125     # g_i = tanh(scale * k_i . q); keeps rule scores bounded
   write_penalty_lambda: 0.01  # cost per expected write, added to the loss
   write_penalty_ramp_steps: 2000  # lambda grows linearly from 0 over this many steps
+  write_penalty_from_phase: 2     # the ramp starts with phase 2 (recitation); see LEARNING.md
   sparse_values: false        # off in the quick run (code path kept switchable)
   sparse_value_k: 32          # if on: keep only the 32 largest numbers of each stored vector
   product_keys: false         # off in the quick run (code path kept switchable)
@@ -69,12 +71,23 @@ train:
     n_growth: 1.001           # multiplied per step, rounded up
     n_max: 128
     text_fraction: 0.5        # half of each batch is normal next-token text
+    warmup_steps: 100
+    steps: auto               # set by the phase-0 speed test so phase 2 takes `minutes`
   eval_interval_minutes: 5
+  val_batches: 20             # fixed validation batches per evaluation
+  log_every_steps: 50
+  max_rollbacks: 5            # NaN rollbacks before giving up
   speed_test_minutes: 3
+  eval_minutes: 30            # reserved for phase 3 in the time plan
   total_gpu_hours: 4.0
+
+eval:
+  passages_per_length: 256    # recitation passages per length (16, 32, 64, 128)
+  lengths: [16, 32, 64, 128]
 
 checkpoint:
   every_minutes: 15
+  every_steps: 0              # 0 = off; tests use a step interval instead of minutes
   keep_last: 2                # plus the best one
 
 paths:

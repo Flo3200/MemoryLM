@@ -3,6 +3,7 @@
 inherit: quick.yaml
 
 preset: tiny
+run_name: tiny
 
 tokenizer:
   vocab_size: 512
@@ -32,8 +33,18 @@ train:
     tokens: 20000
   phase2:
     minutes: 1
+    steps: 10
+    warmup_steps: 2
+    n_start: 8
+    n_max: 32
+  val_batches: 2
+  log_every_steps: 5
   eval_interval_minutes: 1
   speed_test_minutes: 0.1
+
+checkpoint:
+  every_minutes: 1000
+  every_steps: 5
 
 paths:
   local_root: runs/tiny

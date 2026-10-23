@@ -349,3 +349,87 @@ because the memory projections are smaller than originally estimated.
   stories have ≥ 128). Evaluation uses one fixed set per length.
 - **Why:** a story beginning is a natural, self-contained passage; a fixed
   evaluation set makes all models and conditions directly comparable.
+
+---
+
+## 4. Training loop and robustness (`train.py`, `checkpoint.py`, `run_all.py`)
+
+### AdamW, warm-up, cosine decay
+- **What:** Adam keeps a running average of each weight's gradient and of its
+  square and takes steps of roughly equal size for every weight; "W" means
+  weight decay is applied directly (0.1, on matrices only). The learning rate
+  rises linearly for 300 steps, then falls along a cosine curve to 10 %.
+- **Why:** Adam copes with the very different gradient scales of embeddings,
+  attention and memory scalars. Warm-up avoids huge steps while Adam's
+  averages are still unreliable; the slow decay lets the model settle.
+- **Alternatives:** SGD with momentum (needs much more tuning for
+  transformers), Lion, Muon; constant or step-wise learning rate.
+
+### Gradient clipping at 1.0
+- **What:** if the gradient vector is longer than 1.0, it is shortened to 1.0.
+- **Why:** a single unusual batch can produce a huge gradient that destroys
+  what was learned; clipping caps the damage without changing normal steps.
+
+### Mixed precision with loss scaling (fp16 on the T4)
+- **What:** matrix products in 16-bit floats, sensitive operations (norms,
+  softmax, loss) in 32-bit. The loss is multiplied by a large factor before
+  backpropagation so that tiny gradients do not round to zero; steps whose
+  gradients overflow are skipped and the factor is reduced.
+- **Why:** roughly 2× faster and half the memory on a T4 GPU.
+- **Alternatives:** bfloat16 (no loss scaling needed, but not fast on a T4),
+  full 32-bit (slow).
+
+### Same batch size, same data, same seed for both models
+- **What:** the batch size is searched once for MemoryLM (the larger memory
+  user, worst case = phase-2 step with 128-token recitations) and reused for
+  the baseline; both read the same windows in the same order.
+- **Why:** any difference in the results should come from the architecture,
+  not from different data or optimisation settings.
+
+### Token budget from a speed test
+- **What:** phase 0 measures real tokens per second on the GPU and sets the
+  phase-1 budget so MemoryLM needs ~60 min; the baseline gets the same number
+  of tokens (it finishes sooner). If the whole plan would exceed 4 GPU hours,
+  the budget is shrunk automatically.
+- **Why:** a fair comparison fixes the *data* (tokens), not the time.
+  Equal time would give the faster baseline more data.
+
+### Phase 2: recitation curriculum
+- **What:** read N tokens (writes allowed) → clear the context completely →
+  `<recite>` → reproduce the passage; loss only on the recited tokens, plus
+  the write penalty. N starts at 16 and grows by 0.1 % per step (interpreted
+  as N_t = ⌈16 · 1.001^t⌉, reaching 128 after ~2100 steps; rounding up
+  *every* step would add +1 per step and reach 128 after only 112 steps).
+  Half of every batch is normal text, so language ability is not forgotten.
+- **Why:** start easy so the model first discovers that the memory pays off.
+
+### Write penalty starts in phase 2 (design decision)
+- **What:** in phase 1 the penalty is 0; it ramps up over 2000 steps from
+  the start of phase 2 (`memory.write_penalty_from_phase`, switchable).
+- **Why:** in phase 1 attention already sees all 128 tokens, so the memory
+  helps little there; a penalty would close the gates first. A closed gate
+  receives no learning signal through the straight-through estimator, so the
+  gates might never reopen when recitation starts.
+
+### Checkpoints, resume, NaN rollback
+- **What:** every 15 minutes the full training state (weights, optimizer,
+  loss scaler, step, data position, all random-generator states, phase-2
+  length and sampler) is written atomically (temporary file → rename); the
+  last two plus the best (by validation loss) are kept. On restart the newest
+  readable checkpoint is loaded. If the loss stays non-finite or a weight
+  becomes NaN, training returns to the last good checkpoint with half the
+  learning rate.
+- **Why:** free Colab sessions end without warning. Tests prove that a run
+  "killed" in the middle of phase 2 and resumed in a fresh process ends with
+  bit-identical weights to an uninterrupted run, and that an injected NaN is
+  rolled back.
+- **Bugs found on CPU by these tests (no GPU time lost):** after a rollback
+  the training loop kept counting in a stale copy of its state (it would have
+  looped forever); the recitation length never grew.
+
+### Status and metrics on Drive
+- **What:** `logs/status.json` (current phase, step, losses, ETA, write
+  rates, memory size) is overwritten after every evaluation interval;
+  `logs/metrics_<model>.jsonl` keeps one line per evaluation.
+- **Why:** progress can be checked from anywhere (Drive, the local app)
+  without streaming the training log.

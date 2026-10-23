@@ -278,7 +278,8 @@ def prepare_data(cfg, min_train_tokens: Optional[int] = None, txt_override: Opti
     tok = load_tokenizer(cfg)
 
     n_eval = cfg.data.recite_eval_stories
-    _encode_pools(tok, get("valid"), d, lambda i: "recite_eval" if i < n_eval else "valid", "valid_file", meta)
+    if not meta.get("valid_file", {}).get("complete"):      # no download at all once everything is cached
+        _encode_pools(tok, get("valid"), d, lambda i: "recite_eval" if i < n_eval else "valid", "valid_file", meta)
     have = meta.get("train_file", {}).get("pools", {}).get("train", {}).get("tokens", 0)
     if not meta.get("train_file", {}).get("complete") and (min_train_tokens is None or have < min_train_tokens):
         _encode_pools(tok, get("train"), d, lambda i: "recite_train" if i % RECITE_EVERY == 0 else "train",

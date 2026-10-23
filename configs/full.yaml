@@ -3,6 +3,7 @@
 inherit: quick.yaml
 
 preset: full
+run_name: full
 
 tokenizer:
   vocab_size: 8192

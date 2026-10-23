@@ -1,26 +1,12 @@
 """Tests of tokenizer, caching and batching (milestone M3). Offline: they use a
 small synthetic corpus in the TinyStories file format."""
-import random
-
 import numpy as np
 import pytest
 
 from memorylm import data
 from memorylm.config import load_config
 
-WORDS = "the a cat dog girl boy ran saw big small happy sad tree ball sun park played went home friend".split()
-
-
-def write_corpus(path, n, seed):
-    rnd = random.Random(seed)
-    stories = []
-    for i in range(n):
-        body = " ".join(rnd.choice(WORDS) for _ in range(rnd.randint(30, 90)))
-        stories.append(f"Story number {i}. Once upon a time {body}.")
-    # Like the real files: starts with a fragment, stories separated by the marker.
-    path.write_text("ment of an older story.\n" + "".join(f"<|endoftext|>\n{s}\n" for s in stories))
-    return stories
-
+from conftest import write_corpus
 
 @pytest.fixture()
 def corpus(tmp_path, monkeypatch):
