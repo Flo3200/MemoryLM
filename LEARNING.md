@@ -506,3 +506,22 @@ training dashboard (from Drive or Hugging Face logs), model download.
 Generation inside the app uses temperature and top-k sampling: temperature
 0 always picks the most likely token (repetitive), higher values add
 variety; top-k forbids all but the k most likely tokens (avoids nonsense).
+
+---
+
+## Appendix: CPU probe on real text (before any GPU time)
+Tiny model (64-dim), real TinyStories text (80/20 split of the validation
+file, 3 M phase-1 tokens), then 1500 recitation steps with 24-token passages.
+Teacher-forced recall on 128 held-out passages:
+
+| Variant | memory on | memory off | memory gain | tokens written |
+|---|---|---|---|---|
+| default gates + write penalty | 0.681 | 0.609 | **+0.072** | ~10 % |
+| gates forced open, no penalty | 0.705 | 0.559 | **+0.147** | 100 % |
+
+Lessons: (1) the memory only becomes useful after the model has learned
+real language (on random-word stories the gain stayed ≈ 0); (2) the write
+penalty buys a 10× smaller memory at the cost of about half the recall gain –
+exactly the compression trade-off the main experiment measures; (3) the
+learned read strengths end far from 0 (β up to 1.5, α down to −1.2), so the
+layers actively use the memory. One seed, tiny model: indicative only.
