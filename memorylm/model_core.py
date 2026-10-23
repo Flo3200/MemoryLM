@@ -204,7 +204,9 @@ class Block(nn.Module):
         h = self.norm1(x)
         a = self.attn(h, cos, sin, cache, self.layer)
         if mem is not None:
-            a = a + mem.knowledge_read(self.layer, h)        # step 4 of a MemoryLM layer
+            read = mem.knowledge_read(self.layer, h)          # step 4 of a MemoryLM layer
+            if read is not None:                              # None = store still empty
+                a = a + read
         x = x + self.attn.out(a)
         h2 = self.norm2(x)
         corr = mem.rule_correction(self.layer, h2) if mem is not None else None

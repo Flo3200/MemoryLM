@@ -17,7 +17,7 @@ model:
   n_heads: 4                  # 4 heads x 64 dims = 256
   context: 128                # tokens the attention can see at once
   ffn_hidden_memorylm: 704    # SwiGLU inner width of MemoryLM
-  ffn_hidden_baseline: auto   # "auto": widest value that keeps the baseline within 2 % of MemoryLM's parameters
+  ffn_hidden_baseline: auto   # "auto" = 864 here: the width that matches MemoryLM's parameter count (0.3 % apart)
   rope_base: 10000.0          # RoPE frequency base (standard value)
   norm_eps: 1.0e-5
   tie_weights: true           # input embedding and output matrix share weights
@@ -36,7 +36,9 @@ memory:
   write_penalty_lambda: 0.01  # cost per expected write, added to the loss
   write_penalty_ramp_steps: 2000  # lambda grows linearly from 0 over this many steps
   sparse_values: false        # off in the quick run (code path kept switchable)
+  sparse_value_k: 32          # if on: keep only the 32 largest numbers of each stored vector
   product_keys: false         # off in the quick run (code path kept switchable)
+  product_key_candidates: 32  # if on: candidates per key half before exact re-scoring
 
 data:
   hf_repo: roneneldan/TinyStories

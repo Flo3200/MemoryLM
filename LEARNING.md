@@ -158,3 +158,120 @@ width 256.
 Core with SwiGLU width 704: **4,262,144** parameters. With width 1024:
 **5,245,184**. The baseline width is chosen automatically in M2 so that
 baseline and MemoryLM (core + memory projections) differ by less than 2 %.
+
+---
+
+## 2. The external memory (`memorylm/memory.py`)
+
+### Overview
+MemoryLM = the core above + two stores that are filled **while reading**
+and emptied after every episode. Storing is not learning in the usual sense:
+no weights change at test time; the model writes vectors and later reads them.
+
+### Knowledge store (key → value), read with top-8 softmax
+- **What:** each layer projects its normalised input to a 64-dim query,
+  compares it with every stored key (brute-force dot product), keeps the
+  8 best, softmax-weights their 256-dim values and adds the result to the
+  attention output, scaled by a learned per-layer number β (start: 0).
+- **Why:** attention can only see the 128 tokens in the context window. The
+  store keeps compressed traces of earlier text after the context is cleared.
+  Top-k keeps the read sharp and cheap; softmax lets the model blend a few
+  similar entries.
+- **Alternatives:** attend over *all* entries (Memorizing Transformers use
+  kNN + attention like here), recurrent memory tokens (RMT), compressive
+  memories (Compressive Transformer, Infini-attention), retrieval from an
+  external text database (RETRO).
+
+### Rule store (key → a, b), a low-rank correction of the feed-forward layer
+- **What:** an entry adds the rank-1 matrix `b aᵀ` to the expansion matrix
+  `W_up`, weighted by `g = tanh(score/8)`. Eight entries give a rank-≤8
+  correction: `content = W_up x + α Σ g_i b_i (a_i·x)`. The 704×256 matrix is
+  never built; `a_i·x` is one number per entry.
+- **Why:** the knowledge store adds *facts* (vectors) to the stream; the rule
+  store changes *how* tokens are processed – closer to "learning a rule from
+  the text" (fast weights). No softmax: rules should not compete for a fixed
+  budget, several may apply fully or none. tanh bounds each score so the
+  correction cannot explode. A test checks that the cheap formula equals the
+  explicit matrix product.
+- **Alternatives:** fast-weight programmers / linear transformers (write
+  outer products into one matrix), LoRA (a *trained*, fixed low-rank update),
+  hypernetworks (generate full weights).
+
+### One shared store for all layers; scalars initialised to 0
+- **What:** all 4 layers read the same two stores; β and α start at 0.
+- **Why:** sharing keeps memory size independent of depth. Starting at 0
+  means MemoryLM begins as an exact copy of its core (proven by a test,
+  bit-for-bit), so any later difference to the baseline is learned, not an
+  accident of initialisation.
+- **Alternatives:** one store per layer (more memory, more flexible); small
+  random initial scalars (faster start, but no clean starting point).
+
+### Write path: gates on the output layer, straight-through estimator
+- **What:** the output matrix has 2 extra rows → two gate numbers per token.
+  Gate > 0 → the token is stored. The stored vectors are projections of the
+  hidden state after layer 2. During backpropagation the hard 0/1 step is
+  treated as if it were a smooth sigmoid (straight-through estimator, STE).
+  The gate bias starts at +0.5, so at first nearly every token is written.
+- **Why:** a hard decision gives a truly sparse memory (unwritten = empty),
+  but a step function has zero gradient everywhere; the STE gives the gate a
+  useful learning signal anyway. Layer 2 of 4 is a compromise: deep enough to
+  encode context, early enough to be cheap. The stored value is multiplied by
+  the gate, which is the path through which the gate learns whether an entry
+  was useful. **Known limit:** a closed gate's entry is invisible, so it gets no
+  signal that writing *would have* helped; the positive start bias and the
+  soft-gate fallback (`gate_mode: soft`) address this.
+- **Alternatives:** soft gates only (no sparsity), REINFORCE / Gumbel-softmax
+  (unbiased or annealed estimators, noisier), writing everything with a
+  learned eviction policy.
+
+### Write penalty
+- **What:** loss += λ · (expected writes per token), with expected writes =
+  sum of the gates' sigmoids; λ grows linearly from 0 during the first steps.
+- **Why:** without a cost the cheapest strategy is to store everything. The
+  penalty makes memory a budget; ramping it in lets the model first discover
+  that memory is useful before it learns to economise.
+- **Alternatives:** a hard write budget per chunk (top-n tokens), L0
+  regularisation, a fixed small capacity only.
+
+### Chunks of 32 tokens and causality
+- **What:** text is processed chunk by chunk; writes happen after a chunk is
+  complete, so entries from chunk j are readable only from chunk j+1.
+- **Why:** within one chunk all tokens are computed in parallel; if a token
+  could read an entry written in the same chunk, it could read information
+  from tokens after it (a leak). Tests change one token in the middle of a
+  chunk and check that no earlier position – including earlier ones in the
+  same chunk – changes, and that gradients never flow from the future.
+- **Alternatives:** token-by-token writing (exact but 32× more sequential
+  steps), longer chunks (faster, but fresh text becomes readable later).
+
+### Episodes, capacity and backprop through time
+- **What:** one episode = one training sequence. The memory starts empty
+  (tested), holds at most 512 entries per store (oldest unwritten slots are
+  dropped first), and is discarded at the end. Gradients flow back through
+  every write within the episode.
+- **Why:** an empty start makes the memory a property of the *current* text,
+  not a hidden second training set; backprop through writes is what teaches
+  the write projections what is worth storing.
+- **Alternatives:** persistent memory across episodes (lifelong memory; much
+  harder to evaluate and to keep causal), truncated backprop (cheaper, but
+  the model cannot learn long-range write → read dependencies).
+
+### Memory size
+Counted as stored non-zero numbers × 2 bytes (fp16), per episode. One
+entry = 64 (key) + 256 (value) in the knowledge store and
+64 + 256 + 704 in the rule store; writing all 128 tokens of a sequence to
+both stores costs about 340 KB.
+
+### Parameter balance
+Memory parameters (queries, write projections, gates, scalars): 475,658.
+MemoryLM: **4,737,802**. Baseline with automatically chosen SwiGLU width 864:
+**4,753,664** (0.33 % apart). The specification expected about 1024; that
+width would give the baseline 0.5 M (10 %) more parameters than MemoryLM,
+because the memory projections are smaller than originally estimated.
+
+### Switchable, off in the quick run
+- **Sparse values:** keep only the 32 largest numbers per stored vector
+  (smaller memory, tested to shrink the reported size).
+- **Product-key search:** split each key in two halves, keep only entries
+  that rank well on either half, score those exactly (sub-linear search for
+  very large memories, after Lample et al. 2019).
