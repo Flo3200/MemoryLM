@@ -46,9 +46,11 @@ def rng_state() -> dict:
 def set_rng_state(s: dict) -> None:
     random.setstate(s["python"])
     np.random.set_state(s["numpy"])
-    torch.set_rng_state(s["torch"])
+    # a checkpoint loaded with map_location=cuda moves these onto the GPU,
+    # but the generators only accept CPU byte tensors
+    torch.set_rng_state(s["torch"].cpu())
     if "cuda" in s and torch.cuda.is_available():
-        torch.cuda.set_rng_state_all(s["cuda"])
+        torch.cuda.set_rng_state_all([t.cpu() for t in s["cuda"]])
 
 
 class CheckpointManager:
