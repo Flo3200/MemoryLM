@@ -146,6 +146,30 @@ def test_write_penalty_value():
     assert model.core.extra_head.bias.grad.abs().sum() > 0
 
 
+
+def test_closed_gates_get_no_task_gradient_but_the_floor_reopens_them():
+    """Why the quick run's gates died: a closed gate's slot is masked out of
+    every read, so the task loss gives it exactly zero gradient and nothing
+    can reopen it. The write floor (min_write_rate) does push it back up."""
+    model, cfg = make(["memory.min_write_rate=0.1"], live=True)
+    model.train()
+    with torch.no_grad():
+        model.core.extra_head.bias.fill_(-5.0)
+    idx = tokens(cfg)
+    out = model(idx)
+    assert out["write_rate"] == [0.0, 0.0]
+    logits = out["logits"][:, :-1]
+    F.cross_entropy(logits.reshape(-1, logits.shape[-1]), idx[:, 1:].reshape(-1)).backward()
+    g = model.core.extra_head
+    assert g.bias.grad is None or g.bias.grad.abs().sum() == 0
+    model.zero_grad()
+    out = model(idx)
+    assert out["write_floor"].item() > 0
+    out["write_floor"].backward()
+    assert (g.bias.grad < 0).all()          # gradient descent raises the bias = opens the gates
+    model.zero_grad()
+    assert make()[0](idx)["write_floor"] is None   # off by default
+
 # ---------------------------------------------------------------- rule store maths
 def test_rule_correction_equals_full_low_rank_matrix():
     """sum_i g_i * b_i * (a_i . x) must equal (sum_i g_i * b_i a_i^T) x,

@@ -247,6 +247,8 @@ class Trainer:
             loss = ce
             if out["expected_writes"] is not None:
                 loss = loss + lam * out["expected_writes"]
+                if out["write_floor"] is not None:
+                    loss = loss + out["write_floor"]
                 info["write_rate"], info["state"] = out["write_rate"], out["state"]
             info["ce"] = ce
             st["tokens"] += B * (x.shape[1] - 1)
@@ -265,6 +267,9 @@ class Trainer:
         out = self.model(x[:, :-1])
         ce_t = lm_loss(out["logits"], x[:, 1:])
         loss = 0.5 * (ce_r + ce_t) + lam * 0.5 * (ew_r + out["expected_writes"])
+        floor_r = mstate.write_floor(float(self.cfg.memory.min_write_rate))
+        if floor_r is not None:
+            loss = loss + 0.5 * (floor_r + out["write_floor"])
         st["tokens"] += br * 2 * n + bt * (x.shape[1] - 1)
         info.update(ce=ce_t, ce_recite=ce_r, recite_n=n, write_rate=out["write_rate"], state=mstate,
                     recite_acc=(logits.argmax(-1) == passages).float().mean())

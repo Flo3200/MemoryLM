@@ -525,3 +525,42 @@ penalty buys a 10× smaller memory at the cost of about half the recall gain –
 exactly the compression trade-off the main experiment measures; (3) the
 learned read strengths end far from 0 (β up to 1.5, α down to −1.2), so the
 layers actively use the memory. One seed, tiny model: indicative only.
+
+## Appendix: first GPU run – the write gates died (2026-10-24)
+
+The quick run on a Colab T4 finished without errors, but MemoryLM wrote
+nothing: the write rates fell during phase 1 (no penalty yet) from 30 % /
+15 % at step 1166 to 0 by step ~4700 and never came back, so "memory on"
+equalled "memory off" at every length.
+
+Diagnosis (on CPU, with the downloaded models):
+
+1. **Phase 1 pushes the gates shut.** In plain next-token prediction the
+   memory is redundant – everything it could hold is still in the 128-token
+   context – so the gradient says "store less". The model did not become
+   selective; it closed the gates for *every* token: the gate bias fell from
+   +0.5 to −1.2 / −0.9, the gate weights stayed tiny (norm 0.28 / 0.14 vs 1.0
+   for a vocabulary row), and the read strengths β, α went back to ≈ 0.
+2. **A closed gate can never reopen.** Its slot is masked out of every read,
+   so the task loss gives it *exactly zero* gradient (test
+   `test_closed_gates_get_no_task_gradient_but_the_floor_reopens_them`).
+   In phase 2 the model clearly wanted the memory (β, α grew to ±0.5, gate
+   weights to 1.2), but with 0.08 % of gates open almost no learning signal
+   reached them, and the write penalty pushed them further down.
+
+Fix: `memory.min_write_rate` – a hinge loss that keeps each store's *real*
+(hard) write rate above a floor, with the sigmoid's gradient as in the gate
+itself. (A floor on the expected sigmoid rate is not enough: it can read
+10 % while every logit is below 0 and nothing is written.)
+
+Rescue test: the collapsed phase-1 model, 600 recitation steps on CPU
+(64-token passages, batch 16), teacher-forced recall on 128 held-out passages:
+
+| Variant | write rate | memory on | memory off | memory gain |
+|---|---|---|---|---|
+| as in the run (no floor) | 0.2 % / 0.4 % | 0.649 | 0.649 | ±0.000 |
+| `min_write_rate=0.1` | 14 % / 18 % | 0.710 | 0.616 | **+0.095** |
+
+With the floor the gates reopened through their *weights* (the bias did not
+move), i.e. selectively, and the gain was still rising at step 600.
+The option is off by default; the next GPU run should set it to 0.1.

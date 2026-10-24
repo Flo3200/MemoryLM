@@ -95,6 +95,19 @@ class MemoryState:
         self.expected_writes = 0.0      # sum of sigmoid(gate) over all write decisions (for the penalty)
         self.decisions = 0              # number of tokens that had a write decision
         self.hard_writes = torch.zeros(2)
+        self.ste_writes = torch.zeros(2)  # hard writes per store, with the sigmoid gradient (write floor)
+
+    def write_floor(self, min_rate: float):
+        """Hinge loss that keeps each store's REAL write rate >= min_rate.
+        A closed gate gets no gradient from the task loss (its slot is masked
+        out of every read), so without this floor gates that close once stay
+        closed for good. The rate counts hard writes (an expected sigmoid
+        rate can be 10 % while every logit is below 0 and nothing is
+        written); its gradient is the sigmoid's, as in the gate itself.
+        None if off or nothing was decided."""
+        if min_rate <= 0 or not self.decisions:
+            return None
+        return torch.relu(min_rate - self.ste_writes / self.decisions).sum()
 
     def is_empty(self) -> bool:
         return len(self.knowledge) == 0 and len(self.rule) == 0
@@ -229,6 +242,8 @@ class MemoryModule(nn.Module):
         state.knowledge.append(self.w_kkey(x2), [kval * w[..., :1]], valid[..., 0])
         state.rule.append(self.w_rkey(x2), [ra, rb * w[..., 1:]], valid[..., 1])
         state.expected_writes = state.expected_writes + sig.sum()
+        hard_ste = (g > 0).float() + sig - sig.detach()
+        state.ste_writes = state.ste_writes.to(g.device) + hard_ste.sum((0, 1))
         state.decisions += g.shape[0] * g.shape[1]
         state.hard_writes = state.hard_writes.to(g.device) + valid.float().sum((0, 1)).detach()
 
@@ -308,6 +323,7 @@ class MemoryLM(nn.Module):
         out = self.process(idx, state, use_memory=use_memory)
         n = max(state.decisions, 1)
         out["expected_writes"] = state.expected_writes / n if state.decisions else None
+        out["write_floor"] = state.write_floor(float(self.cfg.memory.min_write_rate))
         out["state"] = state
         out["write_rate"] = (state.hard_writes / n).tolist() if state.decisions else [0.0, 0.0]
         return out
