@@ -68,7 +68,8 @@ def generate(model, prompt: torch.Tensor, max_new: int, state=None, use_memory: 
     """Continue `prompt` (B, P) by up to `max_new` tokens inside one context
     window. temperature 0 = greedy (always the most likely token)."""
     ctx = model.cfg.model.context
-    max_new = min(max_new, ctx - prompt.shape[1])
+    # the last new token is never fed back, so ctx - P + 1 tokens fit
+    max_new = min(max_new, ctx - prompt.shape[1] + 1)
     cache = KVCache(model.cfg.model.n_layers)
     core = model.core
 

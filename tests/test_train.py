@@ -190,7 +190,7 @@ def test_evaluation_end_to_end(tiny_cfg):
     import json
     from memorylm.evaluate import run_evaluation
     cfg = tiny_cfg("train.phase1.tokens=2048", "train.phase2.steps=4", "eval.passages_per_length=8",
-                   "eval.lengths=[8,16]", "eval.val_windows=16")
+                   "eval.lengths=[8,64]", "eval.val_windows=16")
     plan = make_plan(cfg, torch.device("cpu"))
     from memorylm.checkpoint import atomic_write_json
     atomic_write_json(run_dir(cfg) / "plan.json", plan)
@@ -198,7 +198,7 @@ def test_evaluation_end_to_end(tiny_cfg):
         trainer(cfg, kind, plan).train()
     res = run_evaluation(cfg, torch.device("cpu"))
     out = run_dir(cfg) / "eval"
-    assert set(res["recall"]) == {"8", "16"}
+    assert set(res["recall"]) == {"8", "64"}  # 64 = full context (regression: off by one)
     for f in ("results.json", "REPORT.md", "recall_by_length.png", "loss_curves.png"):
         assert (out / f).exists(), f
     r = json.loads((out / "results.json").read_text())["recall"]["8"]
