@@ -168,7 +168,7 @@ def test_closed_gates_get_no_task_gradient_but_the_floor_reopens_them():
     out["write_floor"].backward()
     assert (g.bias.grad < 0).all()          # gradient descent raises the bias = opens the gates
     model.zero_grad()
-    assert make()[0](idx)["write_floor"] is None   # off by default
+    assert make(["memory.min_write_rate=0"])[0](idx)["write_floor"] is None   # 0 = off
 
 # ---------------------------------------------------------------- rule store maths
 def test_rule_correction_equals_full_low_rank_matrix():
