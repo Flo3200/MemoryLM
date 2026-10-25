@@ -564,3 +564,11 @@ Rescue test: the collapsed phase-1 model, 600 recitation steps on CPU
 With the floor the gates reopened through their *weights* (the bias did not
 move), i.e. selectively, and the gain was still rising at step 600.
 The option is off by default; the next GPU run should set it to 0.1.
+
+Second GPU run with `min_write_rate=0.1` (2026-10-24): Colab cut the free
+session after ~95 min (MemoryLM phase 1 at step 10,251 of 13,327; without
+Drive everything was lost). Up to that point the gates stayed alive – write
+rates 0.37/0.17 → 0.14/0.13 instead of falling to 0 – and the training loss
+matched the first run's (1.577 vs ~1.575 at the same step), so the floor
+costs no language ability. A complete run needs storage that survives a
+disconnect (Drive, or Kaggle's /kaggle/working).
